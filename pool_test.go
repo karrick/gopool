@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-const DefaultBufSize = 1024
-const DefaultMaxKeep = 1024 * 128
+const defaultBufSize = 1024
+const defaultMaxKeep = 1024 * 128
 
 func testC(bp Pool, concurrency, loops int) {
-	const byteCount = DefaultBufSize / 2
+	const byteCount = defaultBufSize / 2
 
 	var wg sync.WaitGroup
 	wg.Add(concurrency)
@@ -20,12 +20,11 @@ func testC(bp Pool, concurrency, loops int) {
 				bb := bp.Get().(*bytes.Buffer)
 				max := byteCount
 				if j%8 == 0 {
-					max = 2 * DefaultMaxKeep
+					max = 2 * defaultMaxKeep
 				}
 				for k := 0; k < max; k++ {
 					bb.WriteByte(byte(k % 256))
 				}
-				bb.Reset()
 				bp.Put(bb)
 			}
 			wg.Done()
@@ -45,7 +44,7 @@ const medConcurrency = 128
 const highConcurrency = 1024
 
 func bench(b *testing.B, bp Pool, concurrency int) {
-	const loops = 1024
+	const loops = 256
 	for i := 0; i < b.N; i++ {
 		testC(bp, concurrency, loops)
 	}

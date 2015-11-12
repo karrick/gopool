@@ -1,44 +1,57 @@
 package gopool
 
-import "errors"
+import (
+	"errors"
 
-// ChanPool maintains a free-list of buffers.
+	"github.com/karrick/gorill"
+)
+
+// ChanPool implements the Pool interface, maintaining a pool of resources.
 type ChanPool struct {
 	ch chan interface{}
-	pc poolConfig
+	pc config
 }
 
-// NewChanPool creates a new Pool. The pool size, size of new buffers, and max size of buffers
-// to keep when returned to the pool can all be customized.
+// New creates a new Pool. The factory method used to create new items for the Pool must be
+// specified using the gopool.Factory method. Optionally, the pool size and a reset function can be
+// specified.
 //
 //        package main
 //
 //        import (
 //        	"log"
-//
-//        	"github.com/karrick/bufpool"
+//        	"github.com/karrick/gopool"
 //        )
 //
 //        func main() {
-//        	bp, err := bufpool.NewChanPool()
+//              makeBuffer := func() (interface{}, error) {
+//                  return new(bytes.Buffer), nil
+//              }
+//
+//              resetBuffer := func(item interface{}) {
+//                  item.(*bytes.Buffer).Reset()
+//              }
+//
+//        	bp, err := gopool.New(gopool.Factory(makeBuffer),
+//                             gopool.Size(25), gopool.Reset(resetBuffer))
 //        	if err != nil {
 //        		log.Fatal(err)
 //        	}
-//        	for i := 0; i < 4*bufpool.DefaultPoolSize; i++ {
+//        	for i := 0; i < 100; i++ {
 //        		go func() {
 //        			for j := 0; j < 1000; j++ {
-//        				bb := bp.Get()
-//        				for k := 0; k < 3*bufpool.DefaultBufSize; k++ {
+//        				bb := bp.Get().(*bytes.Buffer)
+//        				for k := 0; k < 4096; k++ {
 //        					bb.WriteByte(byte(k % 256))
 //        				}
-//        				bp.Put(bb)
+//        				bp.Put(bb) // NOTE: bb.Reset() called by resetBuffer
 //        			}
 //        		}()
 //        	}
 //        }
-func NewChanPool(setters ...Configurator) (Pool, error) {
-	pc := &poolConfig{
-		poolSize: DefaultPoolSize,
+func New(setters ...Configurator) (Pool, error) {
+	pc := &config{
+		size: DefaultSize,
 		factory: func() (interface{}, error) {
 			return nil, errors.New("ought to specify factory method")
 		},
@@ -48,30 +61,49 @@ func NewChanPool(setters ...Configurator) (Pool, error) {
 			return nil, err
 		}
 	}
-	bp := &ChanPool{
-		ch: make(chan interface{}, pc.poolSize),
+	pool := &ChanPool{
+		ch: make(chan interface{}, pc.size),
 		pc: *pc,
 	}
-	for i := 0; i < bp.pc.poolSize; i++ {
-		item, err := bp.pc.factory()
+	for i := 0; i < pool.pc.size; i++ {
+		item, err := pool.pc.factory()
 		if err != nil {
 			return nil, err
 		}
-		bp.ch <- item
+		pool.ch <- item
 	}
-	return bp, nil
+	return pool, nil
 }
 
-// Get returns an initialized buffer from the free-list.
-func (bp *ChanPool) Get() interface{} {
-	return <-bp.ch
+// Get acquires and returns an item from the pool of resources.
+func (pool *ChanPool) Get() interface{} {
+	return <-pool.ch
 }
 
-// Put will return a used buffer back to the free-list. If the capacity of the used buffer grew
-// beyond the max buffer size, it will be discarded and its memory returned to the runtime.
-func (bp *ChanPool) Put(item interface{}) {
-	if bp.pc.reset != nil {
-		bp.pc.reset(item)
+// Put will release a resource back to the pool.  If the Pool was initialized with a Reset function,
+// it will be invoked with the resource as its sole argument, prior to the resource being added back
+// to the pool.
+func (pool *ChanPool) Put(item interface{}) {
+	if pool.pc.reset != nil {
+		pool.pc.reset(item)
 	}
-	bp.ch <- item
+	pool.ch <- item
+}
+
+// Close is called when the Pool is no longer needed, and the resources in the Pool ought to be
+// released.  If a Pool has a close function, it will be invoked one time for each resource, with
+// that resource as its sole argument.
+func (pool *ChanPool) Close() error {
+	var errors gorill.ErrList
+	if pool.pc.close != nil {
+		for {
+			select {
+			case item := <-pool.ch:
+				errors.Append(pool.pc.close(item))
+			default:
+				return errors.Err()
+			}
+		}
+	}
+	return nil
 }

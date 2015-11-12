@@ -2,73 +2,64 @@ package gopool
 
 import "fmt"
 
-// DefaultPoolSize is the default number of buffers that the free-list will maintain.
-const DefaultPoolSize = 100
+// DefaultSize is the default number of items that will be maintained in the pool.
+const DefaultSize = 10
 
-// Pool represents a data structure that maintains a free-list of buffers, accesible via Get and
-// Put methods.
+// Pool represents a data structure that supports Get and Put methods to acquire resources from, and
+// release resources back to the pool.
 type Pool interface {
+	Close() error
 	Get() interface{}
 	Put(interface{})
 }
 
-type poolConfig struct {
-	poolSize int
-	factory  func() (interface{}, error)
-	reset    func(interface{})
+type config struct {
+	close   func(interface{}) error
+	factory func() (interface{}, error)
+	reset   func(interface{})
+	size    int
 }
 
 // Configurator is a function that modifies a pool configuration structure.
-type Configurator func(*poolConfig) error
+type Configurator func(*config) error
 
-// PoolSize specifies the number of buffers to maintain in the pool.  This option has no effect,
-// however, on free-lists created with NewSyncPool, because the Go runtime dynamically maintains the
-// size of pools created using sync.Pool.
-//
-//        package main
-//
-//        import (
-//        	"log"
-//        	"github.com/karrick/bufpool"
-//        )
-//
-//        func main() {
-//        	bp, err := bufpool.NewChanPool(bufpool.PoolSize(25))
-//        	if err != nil {
-//        		log.Fatal(err)
-//        	}
-//        	for i := 0; i < 4*bufpool.DefaultPoolSize; i++ {
-//        		go func() {
-//        			for j := 0; j < 1000; j++ {
-//        				bb := bp.Get()
-//        				for k := 0; k < 3*bufpool.DefaultBufSize; k++ {
-//        					bb.WriteByte(byte(k % 256))
-//        				}
-//        				bp.Put(bb)
-//        			}
-//        		}()
-//        	}
-//        }
-func PoolSize(size int) Configurator {
-	return func(pc *poolConfig) error {
-		if size <= 0 {
-			return fmt.Errorf("pool size must be greater than 0: %d", size)
-		}
-		pc.poolSize = size
+// Close specifies the optional function to be called once for each resource when the Pool is
+// closed.
+func Close(close func(interface{}) error) Configurator {
+	return func(pc *config) error {
+		pc.close = close
 		return nil
 	}
 }
 
+// Factory specifies the function used to make new elements for the pool.  The factory function is
+// called to fill the pool N times during initialization, for a pool size of N.
 func Factory(factory func() (interface{}, error)) Configurator {
-	return func(pc *poolConfig) error {
+	return func(pc *config) error {
 		pc.factory = factory
 		return nil
 	}
 }
 
+// Reset specifies the optional function to be called on resources when released back to the pool.
+// If a reset function is not specified, then resources are returned to the pool without any reset
+// step.  For instance, if maintaining a Pool of buffers, a library may choose to have the reset
+// function invoke the buffer's Reset method to free resources prior to returning the buffer to the
+// Pool.
 func Reset(reset func(interface{})) Configurator {
-	return func(pc *poolConfig) error {
+	return func(pc *config) error {
 		pc.reset = reset
+		return nil
+	}
+}
+
+// Size specifies the number of items to maintain in the pool.
+func Size(size int) Configurator {
+	return func(pc *config) error {
+		if size <= 0 {
+			return fmt.Errorf("pool size must be greater than 0: %d", size)
+		}
+		pc.size = size
 		return nil
 	}
 }
