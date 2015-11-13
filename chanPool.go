@@ -52,14 +52,14 @@ type ChanPool struct {
 func New(setters ...Configurator) (Pool, error) {
 	pc := &config{
 		size: DefaultSize,
-		factory: func() (interface{}, error) {
-			return nil, errors.New("ought to specify factory method")
-		},
 	}
 	for _, setter := range setters {
 		if err := setter(pc); err != nil {
 			return nil, err
 		}
+	}
+	if pc.factory == nil {
+		return nil, errors.New("ought to specify factory method")
 	}
 	pool := &ChanPool{
 		ch: make(chan interface{}, pc.size),
