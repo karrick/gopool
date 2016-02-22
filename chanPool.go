@@ -3,7 +3,7 @@ package gopool
 import (
 	"errors"
 
-	"github.com/karrick/gorill"
+	gorill "gopkg.in/karrick/gorill.v1"
 )
 
 // ChanPool implements the Pool interface, maintaining a pool of resources.
