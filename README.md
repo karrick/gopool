@@ -33,7 +33,7 @@ The most basic example is creating a buffer pool and using it.
 
 	import (
 		"log"
-		gopool "gopkg.in/karrick/gopool.v1"
+		"github.com/karrick/gopool"
 	)
 
 	func main() {
