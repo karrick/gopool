@@ -5,8 +5,7 @@ import "fmt"
 // DefaultSize is the default number of items that will be maintained in the pool.
 const DefaultSize = 10
 
-// Pool represents a data structure that supports Get and Put methods to acquire resources from, and
-// release resources back to the pool.
+// Pool is the interface implemented by an object that acts as a free-list resource pool.
 type Pool interface {
 	Close() error
 	Get() interface{}
