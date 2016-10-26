@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log"
+	"sync"
 
 	"github.com/karrick/gopool"
 )
@@ -16,12 +17,12 @@ func main() {
 		item.(*bytes.Buffer).Reset()
 	}
 
-	bp, err := gopool.New(gopool.Size(25),
-		gopool.Factory(makeBuffer),
-		gopool.Reset(resetBuffer))
+	bp, err := gopool.New(gopool.Size(25), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
 	if err != nil {
 		log.Fatal(err)
 	}
+	var wg sync.WaitGroup
+	wg.Add(100)
 	for i := 0; i < 100; i++ {
 		go func() {
 			for j := 0; j < 1000; j++ {
@@ -31,6 +32,8 @@ func main() {
 				}
 				bp.Put(bb)
 			}
+			wg.Done()
 		}()
 	}
+	wg.Wait()
 }

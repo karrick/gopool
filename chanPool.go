@@ -2,8 +2,7 @@ package gopool
 
 import (
 	"errors"
-
-	"github.com/karrick/gorill"
+	"strings"
 )
 
 // ChanPool implements the Pool interface, maintaining a pool of resources.
@@ -16,39 +15,45 @@ type ChanPool struct {
 // specified using the gopool.Factory method. Optionally, the pool size and a reset function can be
 // specified.
 //
-//        package main
+//	package main
 //
-//        import (
-//        	"log"
-//        	"github.com/karrick/gopool"
-//        )
+//	import (
+//		"bytes"
+//		"log"
+//		"sync"
 //
-//        func main() {
-//              makeBuffer := func() (interface{}, error) {
-//                  return new(bytes.Buffer), nil
-//              }
+//		"github.com/karrick/gopool"
+//	)
 //
-//              resetBuffer := func(item interface{}) {
-//                  item.(*bytes.Buffer).Reset()
-//              }
+//	func main() {
+//		makeBuffer := func() (interface{}, error) {
+//			return new(bytes.Buffer), nil
+//		}
 //
-//        	bp, err := gopool.New(gopool.Factory(makeBuffer),
-//                             gopool.Size(25), gopool.Reset(resetBuffer))
-//        	if err != nil {
-//        		log.Fatal(err)
-//        	}
-//        	for i := 0; i < 100; i++ {
-//        		go func() {
-//        			for j := 0; j < 1000; j++ {
-//        				bb := bp.Get().(*bytes.Buffer)
-//        				for k := 0; k < 4096; k++ {
-//        					bb.WriteByte(byte(k % 256))
-//        				}
-//        				bp.Put(bb) // NOTE: bb.Reset() called by resetBuffer
-//        			}
-//        		}()
-//        	}
-//        }
+//		resetBuffer := func(item interface{}) {
+//			item.(*bytes.Buffer).Reset()
+//		}
+//
+//		bp, err := gopool.New(gopool.Size(25), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
+//		if err != nil {
+//			log.Fatal(err)
+//		}
+//		var wg sync.WaitGroup
+//		wg.Add(100)
+//		for i := 0; i < 100; i++ {
+//			go func() {
+//				for j := 0; j < 1000; j++ {
+//					bb := bp.Get().(*bytes.Buffer)
+//					for k := 0; k < 4096; k++ {
+//						bb.WriteByte(byte(k % 256))
+//					}
+//					bp.Put(bb)
+//				}
+//				wg.Done()
+//			}()
+//		}
+//		wg.Wait()
+//	}
 func New(setters ...Configurator) (Pool, error) {
 	pc := &config{
 		size: DefaultSize,
@@ -94,16 +99,24 @@ func (pool *ChanPool) Put(item interface{}) {
 // released.  If a Pool has a close function, it will be invoked one time for each resource, with
 // that resource as its sole argument.
 func (pool *ChanPool) Close() error {
-	var errors gorill.ErrList
-	if pool.pc.close != nil {
-		for {
-			select {
-			case item := <-pool.ch:
-				errors.Append(pool.pc.close(item))
-			default:
-				return errors.Err()
+	var errs []error
+	for {
+		select {
+		case item := <-pool.ch:
+			if pool.pc.close != nil {
+				if err := pool.pc.close(item); err != nil {
+					errs = append(errs, err)
+				}
 			}
+		default:
+			if len(errs) == 0 {
+				return nil
+			}
+			var messages []string
+			for _, err := range errs {
+				messages = append(messages, err.Error())
+			}
+			return errors.New(strings.Join(messages, ", "))
 		}
 	}
-	return nil
 }

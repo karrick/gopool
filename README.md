@@ -30,26 +30,30 @@ The most basic example is creating a buffer pool and using it.
 
 ```Go
 	package main
-
+	
 	import (
+		"bytes"
 		"log"
+		"sync"
+	
 		"github.com/karrick/gopool"
 	)
-
+	
 	func main() {
-	      makeBuffer := func() (interface{}, error) {
-	          return new(bytes.Buffer), nil
-	      }
-
-	      resetBuffer := func(item interface{}) {
-	          item.(*bytes.Buffer).Reset()
-	      }
-
-		bp, err := gopool.New(gopool.Factory(makeBuffer),
-	                     gopool.Size(25), gopool.Reset(resetBuffer))
+		makeBuffer := func() (interface{}, error) {
+			return new(bytes.Buffer), nil
+		}
+	
+		resetBuffer := func(item interface{}) {
+			item.(*bytes.Buffer).Reset()
+		}
+	
+		bp, err := gopool.New(gopool.Size(25), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
 		if err != nil {
 			log.Fatal(err)
 		}
+		var wg sync.WaitGroup
+		wg.Add(100)
 		for i := 0; i < 100; i++ {
 			go func() {
 				for j := 0; j < 1000; j++ {
@@ -57,9 +61,11 @@ The most basic example is creating a buffer pool and using it.
 					for k := 0; k < 4096; k++ {
 						bb.WriteByte(byte(k % 256))
 					}
-					bp.Put(bb) // NOTE: bb.Reset() called by resetBuffer
+					bp.Put(bb)
 				}
+				wg.Done()
 			}()
 		}
+		wg.Wait()
 	}
 ```
