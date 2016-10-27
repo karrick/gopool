@@ -15,12 +15,11 @@ const (
 // ArrayPool implements the Pool interface, maintaining a pool of resources.
 type ArrayPool struct {
 	cond    *sync.Cond
-	blocked int // putBlocks | getBlocks
-
-	pc    config
-	gi    int // index of next Get
-	pi    int // index of next Put
-	items []interface{}
+	blocked int // putBlocks | getBlocks | neitherBlocks
+	pc      config
+	gi      int // index of next Get
+	pi      int // index of next Put
+	items   []interface{}
 }
 
 // NewArrayPool creates a new Pool. The factory method used to create new items for the Pool must be
@@ -107,9 +106,10 @@ func NewArrayPool(setters ...Configurator) (Pool, error) {
 		return nil, errors.New("cannot create pool without specifying a factory method")
 	}
 	pool := &ArrayPool{
-		cond:  &sync.Cond{L: &sync.Mutex{}},
-		pc:    pc,
-		items: make([]interface{}, pc.size),
+		blocked: putBlocks,
+		cond:    &sync.Cond{L: &sync.Mutex{}},
+		items:   make([]interface{}, pc.size),
+		pc:      pc,
 	}
 	for i := 0; i < pool.pc.size; i++ {
 		item, err := pool.pc.factory()
