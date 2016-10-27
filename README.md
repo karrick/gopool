@@ -28,6 +28,10 @@ Documentation is available via
 
 The most basic example is creating a buffer pool and using it.
 
+WARNING: You Must ensure resource returns to pool otherwise gopool will deadlock once all resources
+used. If you use the resource in a function, consider using `defer pool.Put(bb)` immediately after
+you obtain the resource at the top of your function.
+
 ```Go
 	package main
 	
@@ -40,15 +44,18 @@ The most basic example is creating a buffer pool and using it.
 	)
 	
 	func main() {
+        const bufSize = 16 * 1024
+        const poolSize = 25
+
 		makeBuffer := func() (interface{}, error) {
-			return new(bytes.Buffer), nil
+            return bytes.NewBuffer(make([]byte, 0, bufSize)), nil
 		}
 	
 		resetBuffer := func(item interface{}) {
 			item.(*bytes.Buffer).Reset()
 		}
 	
-		bp, err := gopool.New(gopool.Size(25), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
+		bp, err := gopool.New(gopool.Size(poolSize), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -61,7 +68,7 @@ The most basic example is creating a buffer pool and using it.
 					for k := 0; k < 4096; k++ {
 						bb.WriteByte(byte(k % 256))
 					}
-					bp.Put(bb)
+					bp.Put(bb) // IMPORTANT: must return resource to pool after use
 				}
 				wg.Done()
 			}()
