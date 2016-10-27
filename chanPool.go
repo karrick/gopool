@@ -108,14 +108,17 @@ func New(setters ...Configurator) (Pool, error) {
 	return pool, nil
 }
 
-// Get acquires and returns an item from the pool of resources.
+// Get acquires and returns an item from the pool of resources. Get blocks while there are no items in the pool.
 func (pool *ChanPool) Get() interface{} {
 	return <-pool.ch
 }
 
-// Put will release a resource back to the pool.  If the Pool was initialized with a Reset function,
-// it will be invoked with the resource as its sole argument, prior to the resource being added back
-// to the pool.
+// Put will release a resource back to the pool. Put blocks if pool already full. If the Pool was
+// initialized with a Reset function, it will be invoked with the resource as its sole argument,
+// prior to the resource being added back to the pool. If Put is called when adding the resource to
+// the pool _would_ result in having more elements in the pool than the pool size, the resource is
+// effectively dropped on the floor after calling any optional Reset and Close methods on the
+// resource.
 func (pool *ChanPool) Put(item interface{}) {
 	if pool.pc.reset != nil {
 		pool.pc.reset(item)
