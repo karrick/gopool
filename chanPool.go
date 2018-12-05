@@ -7,8 +7,8 @@ import (
 
 // ChanPool implements the Pool interface, maintaining a pool of resources.
 type ChanPool struct {
-	ch chan interface{}
-	pc config
+	ch  chan interface{}
+	cfg config
 }
 
 // New creates a new Pool. The factory method used to create new items for the Pool must be
@@ -95,11 +95,11 @@ func New(setters ...Configurator) (Pool, error) {
 		return nil, errors.New("ought to specify factory method")
 	}
 	pool := &ChanPool{
-		ch: make(chan interface{}, pc.size),
-		pc: *pc,
+		ch:  make(chan interface{}, pc.size),
+		cfg: *pc,
 	}
-	for i := 0; i < pool.pc.size; i++ {
-		item, err := pool.pc.factory()
+	for i := 0; i < pool.cfg.size; i++ {
+		item, err := pool.cfg.factory()
 		if err != nil {
 			return nil, err
 		}
@@ -108,38 +108,64 @@ func New(setters ...Configurator) (Pool, error) {
 	return pool, nil
 }
 
-// Get acquires and returns an item from the pool of resources. Get blocks while there are no items in the pool.
-func (pool *ChanPool) Get() interface{} {
-	return <-pool.ch
+// Get acquires and returns an item from the pool of resources. When the Pool's Wait is set, Get
+// blocks while there are no items in the pool. Otherwise, Get creates amd returns a new instance.
+func (p *ChanPool) Get() interface{} {
+	for {
+		select {
+		case item := <-p.ch:
+			return item
+		default:
+			if !p.cfg.wait {
+				if item, err := p.cfg.factory(); err == nil {
+					return item
+				}
+			}
+		}
+	}
 }
 
-// Put will release a resource back to the pool. Put blocks if pool already full. If the Pool was
-// initialized with a Reset function, it will be invoked with the resource as its sole argument,
-// prior to the resource being added back to the pool. If Put is called when adding the resource to
-// the pool _would_ result in having more elements in the pool than the pool size, the resource is
-// effectively dropped on the floor after calling any optional Reset and Close methods on the
-// resource.
-func (pool *ChanPool) Put(item interface{}) {
-	if pool.pc.reset != nil {
-		pool.pc.reset(item)
+// Put will release a resource back to the pool. When the Pool's Wait is set, Put blocks if pool
+// already full. Otherwise, Put discards the resource after optionally calling the Close method with
+// the resource. If the Pool was initialized with a Reset function, it will be invoked with the
+// resource as its sole argument, prior to the resource being added back to the pool. If Put is
+// called when adding the resource to the pool _would_ result in having more elements in the pool
+// than the pool size, the resource is effectively dropped on the floor after calling any optional
+// Reset and Close methods on the resource.
+func (p *ChanPool) Put(item interface{}) {
+	if p.cfg.reset != nil {
+		p.cfg.reset(item)
 	}
-	pool.ch <- item
+	for {
+		select {
+		case p.ch <- item:
+			return
+		default:
+			if !p.cfg.wait {
+				if p.cfg.close != nil {
+					_ = p.cfg.close(item) // ignore close errors
+				}
+				return
+			}
+		}
+	}
 }
 
 // Close is called when the Pool is no longer needed, and the resources in the Pool ought to be
 // released.  If a Pool has a close function, it will be invoked one time for each resource, with
 // that resource as its sole argument.
-func (pool *ChanPool) Close() error {
+func (p *ChanPool) Close() error {
 	var errs []error
 	for {
 		select {
-		case item := <-pool.ch:
-			if pool.pc.close != nil {
-				if err := pool.pc.close(item); err != nil {
+		case item := <-p.ch:
+			if p.cfg.close != nil {
+				if err := p.cfg.close(item); err != nil {
 					errs = append(errs, err)
 				}
 			}
 		default:
+			close(p.ch)
 			if len(errs) == 0 {
 				return nil
 			}

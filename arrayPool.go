@@ -16,7 +16,7 @@ const (
 type ArrayPool struct {
 	cond    *sync.Cond
 	blocked int // putBlocks | getBlocks | neitherBlocks
-	pc      config
+	cfg     config
 	gi      int // index of next Get
 	pi      int // index of next Put
 	items   []interface{}
@@ -109,12 +109,12 @@ func NewArrayPool(setters ...Configurator) (Pool, error) {
 		blocked: putBlocks,
 		cond:    &sync.Cond{L: &sync.Mutex{}},
 		items:   make([]interface{}, pc.size),
-		pc:      pc,
+		cfg:     pc,
 	}
-	for i := 0; i < pool.pc.size; i++ {
-		item, err := pool.pc.factory()
+	for i := 0; i < pool.cfg.size; i++ {
+		item, err := pool.cfg.factory()
 		if err != nil {
-			if pool.pc.close != nil {
+			if pool.cfg.close != nil {
 				_ = pool.Close() // ignore error; want user to get error from factory call
 			}
 			return nil, err
@@ -124,23 +124,35 @@ func NewArrayPool(setters ...Configurator) (Pool, error) {
 	return pool, nil
 }
 
-func (pool *ArrayPool) Get() interface{} {
+// Get acquires and returns an item from the pool of resources. Get blocks while there are no items
+// in the pool.
+func (p *ArrayPool) Get() interface{} {
+	if !p.cfg.wait {
+		p.cond.L.RLock()
+		if p.blocked == getBocks {
+			p.cond.L.RUnlock()
+			if item, err := p.cfg.factory(); err == nil {
+				return item
+			}
+		}
+	}
+
 	// Get blocks when attempt to Get made at location next Put goes to
-	pool.cond.L.Lock()
-	for pool.blocked == getBocks {
-		pool.cond.Wait()
+	p.cond.L.Lock()
+	for p.blocked == getBocks {
+		p.cond.Wait()
 	}
-	item := pool.items[pool.gi]
+	item := p.items[p.gi]
 
-	pool.gi = (pool.gi + 1) % pool.pc.size
-	if pool.gi == pool.pi {
-		pool.blocked = getBocks
+	p.gi = (p.gi + 1) % p.cfg.size
+	if p.gi == p.pi {
+		p.blocked = getBocks
 	} else {
-		pool.blocked = neitherBlocks
+		p.blocked = neitherBlocks
 	}
 
-	pool.cond.L.Unlock()
-	pool.cond.Signal()
+	p.cond.L.Unlock()
+	p.cond.Signal()
 	return item
 }
 
@@ -150,50 +162,50 @@ func (pool *ArrayPool) Get() interface{} {
 // the pool _would_ result in having more elements in the pool than the pool size, the resource is
 // effectively dropped on the floor after calling any optional Reset and Close methods on the
 // resource.
-func (pool *ArrayPool) Put(item interface{}) {
-	if pool.pc.reset != nil {
-		pool.pc.reset(item)
+func (p *ArrayPool) Put(item interface{}) {
+	if p.cfg.reset != nil {
+		p.cfg.reset(item)
 	}
 
 	// Put blocks when attempt to Put made at location next Get comes from
-	pool.cond.L.Lock()
-	for pool.blocked == putBlocks {
-		pool.cond.Wait()
+	p.cond.L.Lock()
+	for p.blocked == putBlocks {
+		p.cond.Wait()
 	}
-	pool.items[pool.pi] = item
+	p.items[p.pi] = item
 
-	pool.pi = (pool.pi + 1) % pool.pc.size
-	if pool.gi == pool.pi {
-		pool.blocked = putBlocks
+	p.pi = (p.pi + 1) % p.cfg.size
+	if p.gi == p.pi {
+		p.blocked = putBlocks
 	} else {
-		pool.blocked = neitherBlocks
+		p.blocked = neitherBlocks
 	}
 
-	pool.cond.L.Unlock()
-	pool.cond.Signal()
+	p.cond.L.Unlock()
+	p.cond.Signal()
 }
 
 // Close is called when the Pool is no longer needed, and the resources in the Pool ought to be
 // released.  If a Pool has a close function, it will be invoked one time for each resource, with
 // that resource as its sole argument.
-func (pool *ArrayPool) Close() error {
-	pool.cond.L.Lock()
-	defer pool.cond.L.Unlock()
+func (p *ArrayPool) Close() error {
+	p.cond.L.Lock()
+	defer p.cond.L.Unlock()
 
 	var errs []error
-	if pool.pc.close != nil {
-		for _, item := range pool.items {
-			if err := pool.pc.close(item); err != nil {
+	if p.cfg.close != nil {
+		for _, item := range p.items {
+			if err := p.cfg.close(item); err != nil {
 				errs = append(errs, err)
 			}
 		}
 	}
 
 	// prevent use of pool after Close
-	pool.items = nil
-	pool.gi = 0
-	pool.pi = 0
-	pool.blocked = getBocks
+	p.items = nil
+	p.gi = 0
+	p.pi = 0
+	p.blocked = getBocks
 
 	if len(errs) == 0 {
 		return nil

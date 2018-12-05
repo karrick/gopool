@@ -1,1 +1,1 @@
-module "github.com/karrick/gopool"
+module github.com/karrick/gopool

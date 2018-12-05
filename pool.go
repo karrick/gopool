@@ -17,6 +17,7 @@ type config struct {
 	factory func() (interface{}, error)
 	reset   func(interface{})
 	size    int
+	wait    bool
 }
 
 // Configurator is a function that modifies a pool configuration structure.
@@ -59,6 +60,15 @@ func Size(size int) Configurator {
 			return fmt.Errorf("pool size must be greater than 0: %d", size)
 		}
 		pc.size = size
+		return nil
+	}
+}
+
+// Wait specifies Get should block until a resource is available and Put should block until there is
+// room in the pool.
+func Wait(wait bool) Configurator {
+	return func(pc *config) error {
+		pc.wait = wait
 		return nil
 	}
 }
