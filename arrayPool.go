@@ -140,7 +140,7 @@ func (pool *ArrayPool) Get() interface{} {
 	}
 
 	pool.cond.L.Unlock()
-	pool.cond.Signal()
+	pool.cond.Broadcast()
 	return item
 }
 
@@ -170,7 +170,7 @@ func (pool *ArrayPool) Put(item interface{}) {
 	}
 
 	pool.cond.L.Unlock()
-	pool.cond.Signal()
+	pool.cond.Broadcast()
 }
 
 // Close is called when the Pool is no longer needed, and the resources in the Pool ought to be
