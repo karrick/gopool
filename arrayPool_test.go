@@ -100,24 +100,24 @@ func TestArrayPool(t *testing.T) {
 }
 
 func TestArrayPoolSize(t *testing.T) {
-	pool, err := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(20))
+	pool, err := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(lowCap))
 	if err != nil {
-		t.Fatalf("Actual: %#v; Expected: %#v", err, nil)
+		t.Fatal(err)
 	}
 	test(t, pool)
 }
 
 func BenchmarkArrayLowConcurrency(b *testing.B) {
-	pool, _ := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(100))
+	pool, _ := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(lowCap))
 	bench(b, pool, lowConcurrency)
 }
 
 func BenchmarkArrayMediumConcurrency(b *testing.B) {
-	pool, _ := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(1000))
+	pool, _ := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(medCap))
 	bench(b, pool, medConcurrency)
 }
 
 func BenchmarkArrayHighConcurrency(b *testing.B) {
-	pool, _ := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(10000))
+	pool, _ := gopool.NewArrayPool(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(largeCap))
 	bench(b, pool, highConcurrency)
 }

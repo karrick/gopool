@@ -11,6 +11,14 @@ import (
 const defaultBufSize = 1024
 const defaultMaxKeep = 1024 * 128
 
+const lowConcurrency = 16
+const medConcurrency = 128
+const highConcurrency = 1024
+
+const lowCap = 100
+const medCap = 1000
+const largeCap = 10000
+
 ////////////////////////////////////////
 
 func makeBuffer() (interface{}, error) {
@@ -58,13 +66,7 @@ func test(t *testing.T, bp gopool.Pool) {
 	testC(bp, concurrency, loops)
 }
 
-const lowConcurrency = 16
-const medConcurrency = 128
-const highConcurrency = 1024
-
 func bench(b *testing.B, bp gopool.Pool, concurrency int) {
-	const loops = 256
-	for i := 0; i < b.N; i++ {
-		testC(bp, concurrency, loops)
-	}
+	b.ResetTimer() // do not include initialization time in benchmarks
+	testC(bp, concurrency, b.N)
 }

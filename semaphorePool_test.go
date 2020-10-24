@@ -110,17 +110,17 @@ func newSemaphorePool(tb testing.TB, count int) gopool.Pool {
 }
 
 func TestSemaphorePool(t *testing.T) {
-	test(t, newSemaphorePool(t, 10))
+	test(t, newSemaphorePool(t, lowCap))
 }
 
 func BenchmarkSemaphoreLowConcurrency(b *testing.B) {
-	bench(b, newSemaphorePool(b, 100), lowConcurrency)
+	bench(b, newSemaphorePool(b, lowCap), lowConcurrency)
 }
 
 func BenchmarkSemaphoreMediumConcurrency(b *testing.B) {
-	bench(b, newSemaphorePool(b, 1000), medConcurrency)
+	bench(b, newSemaphorePool(b, medCap), medConcurrency)
 }
 
 func BenchmarkSemaphoreHighConcurrency(b *testing.B) {
-	bench(b, newSemaphorePool(b, 10000), highConcurrency)
+	bench(b, newSemaphorePool(b, largeCap), highConcurrency)
 }
