@@ -1,4 +1,7 @@
+
 # gopool
+
+TODO: update one or more to create items on fly for Get() and drop on floor for Put()
 
 Gopool offers a way to maintain a free-list, or a pool of resources in
 Go programs.

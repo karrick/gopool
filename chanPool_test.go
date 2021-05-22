@@ -92,7 +92,7 @@ func TestChanPoolInvokesClose(t *testing.T) {
 }
 
 func TestChanPool(t *testing.T) {
-	pool, err := gopool.New(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer))
+	pool, err := gopool.New(gopool.Factory(makeBuffer) /* gopool.Reset(resetBuffer), */, gopool.Close(closeBuffer))
 	if err != nil {
 		t.Fatalf("Actual: %#v; Expected: %#v", err, nil)
 	}
@@ -100,7 +100,7 @@ func TestChanPool(t *testing.T) {
 }
 
 func TestChanPoolSize(t *testing.T) {
-	pool, err := gopool.New(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(lowCap))
+	pool, err := gopool.New(gopool.Factory(makeBuffer) /* gopool.Reset(resetBuffer), */, gopool.Close(closeBuffer), gopool.Size(lowCap))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,16 +108,16 @@ func TestChanPoolSize(t *testing.T) {
 }
 
 func BenchmarkChanLowConcurrency(b *testing.B) {
-	pool, _ := gopool.New(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(lowCap))
+	pool, _ := gopool.New(gopool.Factory(makeBuffer) /* gopool.Reset(resetBuffer), */, gopool.Close(closeBuffer), gopool.Size(lowCap))
 	bench(b, pool, lowConcurrency)
 }
 
 func BenchmarkChanMediumConcurrency(b *testing.B) {
-	pool, _ := gopool.New(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(medCap))
+	pool, _ := gopool.New(gopool.Factory(makeBuffer) /* gopool.Reset(resetBuffer), */, gopool.Close(closeBuffer), gopool.Size(medCap))
 	bench(b, pool, medConcurrency)
 }
 
 func BenchmarkChanHighConcurrency(b *testing.B) {
-	pool, _ := gopool.New(gopool.Factory(makeBuffer), gopool.Reset(resetBuffer), gopool.Close(closeBuffer), gopool.Size(largeCap))
+	pool, _ := gopool.New(gopool.Factory(makeBuffer) /* gopool.Reset(resetBuffer), */, gopool.Close(closeBuffer), gopool.Size(largeCap))
 	bench(b, pool, highConcurrency)
 }

@@ -2,27 +2,32 @@ package gopool
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 )
 
-const (
-	putBlocks = iota
-	getBocks
-	neitherBlocks
-)
+// ArrayPool2 implements the Pool interface, maintaining a pool of resources.
+type ArrayPool2 struct {
+	pc    config
+	items []interface{}
+	cond  sync.Cond
 
-// ArrayPool implements the Pool interface, maintaining a pool of resources.
-type ArrayPool struct {
-	pc      config
-	items   []interface{}
-	cond    *sync.Cond
-	blocked int // putBlocks | getBlocks | neitherBlocks
-	gi      int // index of next Get
-	pi      int // index of next Put
+	// index points to where a Put puts. Get will block when index is 0, Put blocks
+	// when index is size.
+	//
+	// Empty:
+	//    0 1 2 3 4 5 6 7
+	//
+	//    ^
+	// Full:
+	//    0 1 2 3 4 5 6 7
+	//    x x x x x x x x
+	//                    ^
+	index int
 }
 
-// NewArrayPool creates a new Pool. The factory method used to create new items
+// NewArrayPool2 creates a new Pool. The factory method used to create new items
 // for the Pool must be specified using the gopool.Factory method. Optionally,
 // the pool size and a reset function can be specified.
 //
@@ -56,7 +61,7 @@ type ArrayPool struct {
 //			item.(*bytes.Buffer).Reset()
 //		}
 //
-//		bp, err := gopool.NewArrayPool(gopool.Size(poolSize), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
+//		bp, err := gopool.NewArrayPool2(gopool.Size(poolSize), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
 //		if err != nil {
 //			log.Fatal(err)
 //		}
@@ -93,35 +98,45 @@ type ArrayPool struct {
 //		}
 //		return nil
 //	}
-func NewArrayPool(setters ...Configurator) (Pool, error) {
-	pc := config{
-		maxsize: DefaultSize,
-	}
+func NewArrayPool2(setters ...Configurator) (Pool, error) {
+	var pc config
+	var err error
 	for _, setter := range setters {
-		if err := setter(&pc); err != nil {
+		if err = setter(&pc); err != nil {
 			return nil, err
 		}
 	}
-	if pc.factory == nil {
-		return nil, errors.New("cannot create pool without specifying a factory method")
+
+	if pc.maxsize == 0 {
+		if pc.minsize == 0 {
+			return nil, errors.New("cannot create without specifying maximum or minimum size")
+		}
+		// Allow specifying minsize without maxsize. Is this reasonable?
+		pc.maxsize = pc.minsize
+	} else if pc.minsize > pc.maxsize {
+		return nil, fmt.Errorf("cannot create when minimum size is greater than maximum size: %d > %d", pc.minsize, pc.maxsize)
 	}
 
-	pool := &ArrayPool{
-		blocked: putBlocks,
-		cond:    &sync.Cond{L: &sync.Mutex{}},
-		items:   make([]interface{}, pc.maxsize),
-		pc:      pc,
+	pool := &ArrayPool2{
+		cond:  sync.Cond{L: &sync.Mutex{}},
+		items: make([]interface{}, pc.maxsize),
+		pc:    pc,
 	}
 
-	for i := 0; i < pc.maxsize; i++ {
-		item, err := pool.pc.factory()
-		if err != nil {
-			if pool.pc.close != nil {
-				_ = pool.Close() // ignore error; want user to get error from factory call
+	if pc.minsize > 0 {
+		if pc.factory == nil {
+			return nil, errors.New("cannot create with non zero minimum size and without specifying a factory method")
+		}
+		/* pool.index = 0 */ // pool.already already has zero value from initialization
+		for ; pool.index < pool.pc.minsize; pool.index++ {
+			pool.items[pool.index], err = pool.pc.factory()
+			if err != nil {
+				if pool.pc.close != nil {
+					_ = pool.Close() // ignore close error; rather want user to get error from factory failure above
+				}
+				return nil, err
 			}
-			return nil, err
 		}
-		pool.items[i] = item
 	}
 
 	return pool, nil
@@ -130,49 +145,47 @@ func NewArrayPool(setters ...Configurator) (Pool, error) {
 // Close is called when the Pool is no longer needed, and the resources in the
 // Pool ought to be released.  If a Pool has a close function, it will be
 // invoked one time for each resource, with that resource as its sole argument.
-func (pool *ArrayPool) Close() error {
+func (pool *ArrayPool2) Close() error {
 	pool.cond.L.Lock()
 	defer pool.cond.L.Unlock()
 
+	var i int
 	var errs []error
+	var err error
+
 	if pool.pc.close != nil {
-		for _, item := range pool.items {
-			if err := pool.pc.close(item); err != nil {
+		for i = 0; i < pool.index; i++ {
+			if err = pool.pc.close(pool.items[i]); err != nil {
 				errs = append(errs, err)
 			}
 		}
 	}
 
-	// prevent use of pool after Close
+	// Prevent use of pool after Close.
 	pool.items = nil
-	pool.gi = 0
-	pool.pi = 0
-	pool.blocked = getBocks
+	pool.index = 0
 
 	if len(errs) == 0 {
 		return nil
 	}
-	var messages []string
-	for _, err := range errs {
-		messages = append(messages, err.Error())
+
+	messages := make([]string, len(errs))
+	for i, err = range errs {
+		messages[i] = err.Error()
 	}
 	return errors.New(strings.Join(messages, ", "))
 }
 
-func (pool *ArrayPool) Get() interface{} {
-	// Get blocks when attempt to Get made at location next Put goes to
+// Get returns an item from the free list, after possibly blocking if no items
+// are available.
+func (pool *ArrayPool2) Get() interface{} {
 	pool.cond.L.Lock()
-	for pool.blocked == getBocks {
+	for pool.index == 0 {
 		pool.cond.Wait()
 	}
-	item := pool.items[pool.gi]
 
-	pool.gi = (pool.gi + 1) % pool.pc.maxsize
-	if pool.gi == pool.pi {
-		pool.blocked = getBocks
-	} else {
-		pool.blocked = neitherBlocks
-	}
+	pool.index--
+	item := pool.items[pool.index]
 
 	pool.cond.L.Unlock()
 	pool.cond.Broadcast()
@@ -186,24 +199,18 @@ func (pool *ArrayPool) Get() interface{} {
 // _would_ result in having more elements in the pool than the pool size, the
 // resource is effectively dropped on the floor after calling any optional Reset
 // and Close methods on the resource.
-func (pool *ArrayPool) Put(item interface{}) {
+func (pool *ArrayPool2) Put(item interface{}) {
 	if pool.pc.reset != nil {
 		pool.pc.reset(item)
 	}
 
-	// Put blocks when attempt to Put made at location next Get comes from
 	pool.cond.L.Lock()
-	for pool.blocked == putBlocks {
+	for pool.index == pool.pc.maxsize {
 		pool.cond.Wait()
 	}
-	pool.items[pool.pi] = item
 
-	pool.pi = (pool.pi + 1) % pool.pc.maxsize
-	if pool.gi == pool.pi {
-		pool.blocked = putBlocks
-	} else {
-		pool.blocked = neitherBlocks
-	}
+	pool.items[pool.index] = item
+	pool.index++
 
 	pool.cond.L.Unlock()
 	pool.cond.Broadcast()

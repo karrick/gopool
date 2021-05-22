@@ -2,18 +2,13 @@ package gopool
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 )
 
-const (
-	putBlocks = iota
-	getBocks
-	neitherBlocks
-)
-
 // ArrayPool implements the Pool interface, maintaining a pool of resources.
-type ArrayPool struct {
+type ArrayPool1 struct {
 	pc      config
 	items   []interface{}
 	cond    *sync.Cond
@@ -22,7 +17,7 @@ type ArrayPool struct {
 	pi      int // index of next Put
 }
 
-// NewArrayPool creates a new Pool. The factory method used to create new items
+// NewArrayPool1 creates a new Pool. The factory method used to create new items
 // for the Pool must be specified using the gopool.Factory method. Optionally,
 // the pool size and a reset function can be specified.
 //
@@ -56,7 +51,7 @@ type ArrayPool struct {
 //			item.(*bytes.Buffer).Reset()
 //		}
 //
-//		bp, err := gopool.NewArrayPool(gopool.Size(poolSize), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
+//		bp, err := gopool.NewArrayPool1(gopool.Size(poolSize), gopool.Factory(makeBuffer), gopool.Reset(resetBuffer))
 //		if err != nil {
 //			log.Fatal(err)
 //		}
@@ -93,7 +88,7 @@ type ArrayPool struct {
 //		}
 //		return nil
 //	}
-func NewArrayPool(setters ...Configurator) (Pool, error) {
+func NewArrayPool1(setters ...Configurator) (Pool, error) {
 	pc := config{
 		maxsize: DefaultSize,
 	}
@@ -102,18 +97,26 @@ func NewArrayPool(setters ...Configurator) (Pool, error) {
 			return nil, err
 		}
 	}
-	if pc.factory == nil {
-		return nil, errors.New("cannot create pool without specifying a factory method")
+	if pc.maxsize <= 0 {
+		return nil, fmt.Errorf("cannot create with size less than or equal to zero: %d", pc.maxsize)
+	}
+	if pc.minsize > 0 {
+		if pc.minsize > pc.maxsize {
+			return nil, fmt.Errorf("cannot create when minimum size is greater than size: %d > %d", pc.minsize, pc.maxsize)
+		}
+		if pc.factory == nil {
+			return nil, errors.New("cannot create with non zero minimum size and without specifying a factory method")
+		}
 	}
 
-	pool := &ArrayPool{
+	pool := &ArrayPool1{
 		blocked: putBlocks,
 		cond:    &sync.Cond{L: &sync.Mutex{}},
 		items:   make([]interface{}, pc.maxsize),
 		pc:      pc,
 	}
 
-	for i := 0; i < pc.maxsize; i++ {
+	for i := 0; i < pc.minsize; i++ {
 		item, err := pool.pc.factory()
 		if err != nil {
 			if pool.pc.close != nil {
@@ -130,7 +133,7 @@ func NewArrayPool(setters ...Configurator) (Pool, error) {
 // Close is called when the Pool is no longer needed, and the resources in the
 // Pool ought to be released.  If a Pool has a close function, it will be
 // invoked one time for each resource, with that resource as its sole argument.
-func (pool *ArrayPool) Close() error {
+func (pool *ArrayPool1) Close() error {
 	pool.cond.L.Lock()
 	defer pool.cond.L.Unlock()
 
@@ -159,7 +162,7 @@ func (pool *ArrayPool) Close() error {
 	return errors.New(strings.Join(messages, ", "))
 }
 
-func (pool *ArrayPool) Get() interface{} {
+func (pool *ArrayPool1) Get() interface{} {
 	// Get blocks when attempt to Get made at location next Put goes to
 	pool.cond.L.Lock()
 	for pool.blocked == getBocks {
@@ -186,7 +189,7 @@ func (pool *ArrayPool) Get() interface{} {
 // _would_ result in having more elements in the pool than the pool size, the
 // resource is effectively dropped on the floor after calling any optional Reset
 // and Close methods on the resource.
-func (pool *ArrayPool) Put(item interface{}) {
+func (pool *ArrayPool1) Put(item interface{}) {
 	if pool.pc.reset != nil {
 		pool.pc.reset(item)
 	}

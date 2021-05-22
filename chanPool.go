@@ -84,7 +84,7 @@ type ChanPool struct {
 //	}
 func New(setters ...Configurator) (Pool, error) {
 	pc := &config{
-		size: DefaultSize,
+		maxsize: DefaultSize,
 	}
 	for _, setter := range setters {
 		if err := setter(pc); err != nil {
@@ -95,10 +95,10 @@ func New(setters ...Configurator) (Pool, error) {
 		return nil, errors.New("ought to specify factory method")
 	}
 	pool := &ChanPool{
-		ch: make(chan interface{}, pc.size),
+		ch: make(chan interface{}, pc.maxsize),
 		pc: *pc,
 	}
-	for i := 0; i < pool.pc.size; i++ {
+	for i := 0; i < pool.pc.maxsize; i++ {
 		item, err := pool.pc.factory()
 		if err != nil {
 			return nil, err
